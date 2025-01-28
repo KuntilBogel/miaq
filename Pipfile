@@ -14,6 +14,8 @@ pilmoji = {ref = "6ff436fe0a28362bd1d411863347face33e3b6ac", git = "git+https://
 requests = "==2.32.3"
 urllib3 = "==1.26.20"
 werkzeug = "==3.0.6"
+fastapi = "*"
+uvicorn = "*"
 
 [dev-packages]
 

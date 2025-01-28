@@ -18,17 +18,26 @@ BASE_GD_W_IMAGE = Image.open("images/base-gd-w.png")
 BASE_RV_W_IMAGE = Image.open("images/base-gd-w-rv.png")
 
 BASE_IMAGE = Image.open("images/base.png")
+if BASE_IMAGE.mode != "RGBA":
+    BASE_IMAGE = BASE_IMAGE.convert("RGBA")
 MPLUS_FONT = ImageFont.truetype("fonts/MPLUSRounded1c-Regular.ttf", size=16)
-# BRAND = "https://hisoka.net\nhttp://s.id/MaiSakurajima"
+MPLUS_FONTBOLD = ImageFont.truetype("fonts/MPLUSRounded1c-Bold.ttf", size=16)
+# BRAND = "http://hisoka.net\nhttp://s.id/MaiSakurajima"
+# print(MPLUS_FONT.get_variation_names())
 BRAND = "http://s.id/MaiSakurajima"
 
 def getsize(font, text):
     left, top, right, bottom = font.getbbox(text)
     return right - left, bottom 
 
-def drawText(im, ofs, string, font="fonts/MPLUSRounded1c-Regular.ttf", size=16, color=(0, 0, 0, 255), split_len=None, padding=4, disable_dot_wrap=False):
-    ImageDraw.Draw(im)
+from PIL import ImageFont, ImageDraw
+from pilmoji import Pilmoji
+
+
+def drawText(im, ofs, string, font="fonts/MPLUSRounded1c-Regular.ttf", bold_font="fonts/MPLUSRounded1c-Bold.ttf", size=16, color=(0, 0, 0, 255), split_len=None, padding=4, disable_dot_wrap=False):
+    v = ImageDraw.Draw(im)
     fontObj = ImageFont.truetype(font, size=size)
+    boldFontObj = ImageFont.truetype(bold_font, size=size)
 
     pure_lines = []
     pos = 0
@@ -40,50 +49,83 @@ def drawText(im, ofs, string, font="fonts/MPLUSRounded1c-Regular.ttf", size=16, 
                 pure_lines.append(l)
                 l = ""
                 pos += 1
-            elif char == "、" or char == ",":
-                pure_lines.append(l + ("、" if char == "、" else ","))
-                l = ""
-                pos += 1
-            elif char == "。" or char == ".":
-                pure_lines.append(l + ("。" if char == "。" else "."))
+            elif char in ["、", ",", "。", "."]:
+                pure_lines.append(l + char)
                 l = ""
                 pos += 1
             else:
                 l += char
                 pos += 1
-
         if l:
             pure_lines.append(l)
     else:
         pure_lines = string.split("\n")
 
     lines = []
-
     for line in pure_lines:
         lines.extend(fw_wrap(line, width=split_len))
 
     dy = 0
-
     draw_lines = []
 
     for line in lines:
         tsize = getsize(fontObj, line)
-        print(tsize)
         ofs_y = ofs[1] + dy
         t_height = tsize[1]
-
-        x = int(ofs[0] - (tsize[0]/2))
+        x = int(ofs[0] - (tsize[0] / 2))
         draw_lines.append((x, ofs_y, line))
         ofs_y += t_height + padding
         dy += t_height + padding
 
-    adj_y = -30 * (len(draw_lines)-1)
+    adj_y = -30 * (len(draw_lines) - 1)
+
     for dl in draw_lines:
         with Pilmoji(im) as p:
-            p.text((dl[0], (adj_y + dl[1])), dl[2], font=fontObj, fill=color)
+            parts = dl[2].split('*')  # * for bold
+            xPos = dl[0]
+            yPos = adj_y + dl[1]
+
+            for i, part in enumerate(parts):
+                if i % 2 == 1:
+                    p.text((xPos, yPos), part, font=boldFontObj, fill=color)
+                    xPos += v.textlength(part, font=boldFontObj)
+                else:
+                    subparts = part.split('_')  # _ for italic
+                    for j, subpart in enumerate(subparts):
+                        if j % 2 == 1:
+                            text_width, text_height = getsize(fontObj, subpart)
+                            
+                            padding = 15 
+                            italic_text_image = Image.new("RGBA", (text_width + padding * 2, text_height + padding * 2), (0, 0, 0, 0))
+                            italic_draw = ImageDraw.Draw(italic_text_image)
+                            italic_draw.text((padding, padding), subpart, font=fontObj, fill=color)
+
+                            
+                            slant_amount = 0.2 
+                            italic_text_image = italic_text_image.transform(
+                                italic_text_image.size,
+                                Image.AFFINE,
+                                (1, slant_amount, 0, 0, 1, 0),
+                                resample=Image.BICUBIC
+                            )
+                            
+                            im.alpha_composite(italic_text_image, dest=(int(xPos), int(yPos - padding)))
+
+                            xPos += text_width + int(slant_amount * size)
+                        else:
+                            strikethrough_parts = subpart.split('~')
+                            for k, s_part in enumerate(strikethrough_parts):
+                                if k % 2 == 1:
+                                    p.text((xPos, yPos), s_part, font=fontObj, fill=color)
+                                    text_width = v.textlength(s_part, font=fontObj)
+                                    line_y = yPos + text_height // 2  # Middle of the text
+                                    v.line((xPos, line_y, xPos + text_width, line_y), fill=color, width=1)
+                                    xPos += text_width
+                                else:
+                                    p.text((xPos, yPos), s_part, font=fontObj, fill=color)
+                                    xPos += v.textlength(s_part, font=fontObj)
 
     real_y = ofs[1] + adj_y + dy
-
     return (0, dy, real_y)
 
 def make(name, id, content, icon):
