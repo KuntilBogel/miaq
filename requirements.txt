@@ -4,8 +4,8 @@ emoji==2.14.0
 fastapi
 Flask==3.0.3
 itsdangerous==2.2.0
-pillow==11.0.0
-pilmoji @ git+https://github.com/jay3332/pilmoji@6ff436fe0a28362bd1d411863347face33e3b6ac
+pillow==12.3.0
+pilmoji @ git+https://github.com/jay3332/pilmoji@ce0d7884d2cfb7aa325acb87af7394ffa02aca02
 requests==2.32.3
 streamlit
 urllib3==1.26.20
