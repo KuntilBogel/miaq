@@ -3,7 +3,7 @@ title: mkiaq
 sdk: docker
 emoji: 🗨️
 colorFrom: green
-colorTo: blue
+colorTo: red
 ---
 # Make it a Quote
 ## 使い方
