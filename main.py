@@ -7,6 +7,7 @@ import uvicorn
 import requests
 import warnings
 import io
+import os
 from wrap import fw_wrap
 
 warnings.simplefilter("ignore")
@@ -315,4 +316,5 @@ async def main(
     return StreamingResponse(image_io, media_type="image/png")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=3000)
+    port = int(os.environ.get("PORT", 3000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
