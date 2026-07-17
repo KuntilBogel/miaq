@@ -1,7 +1,11 @@
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance
+import ipaddress
+import socket
+from urllib.parse import urlparse
+
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, UnidentifiedImageError
 from pilmoji import Pilmoji
 # from flask import Flask, request, send_file
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.responses import StreamingResponse
 import uvicorn
 import requests
@@ -11,6 +15,78 @@ import os
 from wrap import fw_wrap
 
 warnings.simplefilter("ignore")
+
+ALLOWED_ICON_SCHEMES = {"http", "https"}
+ICON_FETCH_TIMEOUT = 10  # seconds
+MAX_ICON_BYTES = 8 * 1024 * 1024  # 8 MB
+MAX_CONTENT_LEN = 500
+MAX_NAME_LEN = 100
+MAX_ID_LEN = 100
+
+
+class IconFetchError(Exception):
+    """Raised when the user-supplied icon URL can't be safely fetched as an image."""
+
+
+def _assert_public_host(hostname):
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise IconFetchError(f"Could not resolve icon host '{hostname}'") from e
+
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise IconFetchError("Icon URL resolves to a disallowed address")
+
+
+def fetch_icon_image(url):
+    if not url or not url.strip():
+        raise IconFetchError("Icon URL is required")
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ALLOWED_ICON_SCHEMES:
+        raise IconFetchError("Icon URL must use http or https")
+    if not parsed.hostname:
+        raise IconFetchError("Icon URL is missing a host")
+
+    _assert_public_host(parsed.hostname)
+
+    try:
+        resp = requests.get(url, timeout=ICON_FETCH_TIMEOUT, stream=True)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise IconFetchError(f"Failed to download icon: {e}") from e
+
+    content_type = resp.headers.get("Content-Type", "")
+    if content_type and not content_type.split(";")[0].strip().startswith("image/"):
+        raise IconFetchError(f"Icon URL did not return an image (got '{content_type}')")
+
+    data = bytearray()
+    for chunk in resp.iter_content(chunk_size=65536):
+        data.extend(chunk)
+        if len(data) > MAX_ICON_BYTES:
+            raise IconFetchError("Icon image is too large (max 8MB)")
+
+    if not data:
+        raise IconFetchError("Icon URL returned no data")
+
+    try:
+        img = Image.open(io.BytesIO(bytes(data)))
+        img.load()
+    except (UnidentifiedImageError, OSError) as e:
+        raise IconFetchError("Icon URL did not return a valid image") from e
+
+    return img
+
+
+def check_text_lengths(name, id, content):
+    if len(content) > MAX_CONTENT_LEN:
+        raise ValueError(f"content is too long (max {MAX_CONTENT_LEN} characters)")
+    if len(name) > MAX_NAME_LEN:
+        raise ValueError(f"name is too long (max {MAX_NAME_LEN} characters)")
+    if len(id) > MAX_ID_LEN:
+        raise ValueError(f"id is too long (max {MAX_ID_LEN} characters)")
 
 BASE_GD_IMAGE = Image.open("images/base-gd.png")
 BASE_RV_IMAGE = Image.open("images/base-gd-rv.png")
@@ -130,9 +206,10 @@ def drawText(im, ofs, string, font="fonts/MPLUSRounded1c-Regular.ttf", bold_font
     return (0, dy, real_y)
 
 def make(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content))
+    icon = fetch_icon_image(icon)
     icon = icon.resize((720, 720), Image.LANCZOS)
     icon = icon.convert("L")
     icon_filtered = ImageEnhance.Brightness(icon)
@@ -158,9 +235,10 @@ def make(name, id, content, icon):
     return file
 
 def colorMake(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content))
+    icon = fetch_icon_image(icon)
     icon = icon.resize((720, 720), Image.LANCZOS)
 
     img.paste(icon, (0, 0))
@@ -184,9 +262,10 @@ def colorMake(name, id, content, icon):
     return file
 
 def reverseMake(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content))
+    icon = fetch_icon_image(icon)
     icon = icon.resize((720, 720), Image.LANCZOS)
     icon = icon.convert("L")
     icon_filtered = ImageEnhance.Brightness(icon)
@@ -212,9 +291,10 @@ def reverseMake(name, id, content, icon):
     return file
 
 def reverseColorMake(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content))
+    icon = fetch_icon_image(icon)
     icon = icon.resize((720, 720), Image.LANCZOS)
 
     img.paste(icon, (570, 0))
@@ -238,9 +318,10 @@ def reverseColorMake(name, id, content, icon):
     return file
 
 def whiteMake(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content)).convert("RGBA")
+    icon = fetch_icon_image(icon).convert("RGBA")
     icon = icon.resize((720, 720), Image.LANCZOS)
 
     img.paste(icon, (0, 0), icon)
@@ -264,9 +345,10 @@ def whiteMake(name, id, content, icon):
     return file
 
 def reverseWhiteMake(name, id, content, icon):
+    check_text_lengths(name, id, content)
     img = BASE_IMAGE.copy()
 
-    icon = Image.open(io.BytesIO(requests.get(icon).content)).convert("RGBA")
+    icon = fetch_icon_image(icon).convert("RGBA")
     icon = icon.resize((720, 720), Image.LANCZOS)
 
     img.paste(icon, (570, 0), icon)
@@ -298,18 +380,23 @@ async def main(
     content: str = Query("Make it a Quote"),
     icon: str = Query("https://cdn.discordapp.com/embed/avatars/0.png")
 ):
-    if type == "color":
-        image_io = colorMake(name, id, content, icon)
-    elif type == "reverse":
-        image_io = reverseMake(name, id, content, icon)
-    elif type == "reverseColor":
-        image_io = reverseColorMake(name, id, content, icon)
-    elif type == "white":
-        image_io = whiteMake(name, id, content, icon)
-    elif type == "reverseWhite":
-        image_io = reverseWhiteMake(name, id, content, icon)
-    else:
-        image_io = make(name, id, content, icon)
+    try:
+        if type == "color":
+            image_io = colorMake(name, id, content, icon)
+        elif type == "reverse":
+            image_io = reverseMake(name, id, content, icon)
+        elif type == "reverseColor":
+            image_io = reverseColorMake(name, id, content, icon)
+        elif type == "white":
+            image_io = whiteMake(name, id, content, icon)
+        elif type == "reverseWhite":
+            image_io = reverseWhiteMake(name, id, content, icon)
+        else:
+            image_io = make(name, id, content, icon)
+    except (IconFetchError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate image")
 
     image_io.seek(0)
 
