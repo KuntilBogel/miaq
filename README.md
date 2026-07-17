@@ -1,4 +1,10 @@
-
+---
+title: mkiaq
+sdk: docker
+emoji: 🗨️
+colorFrom: green
+colorTo: blue
+---
 # Make it a Quote
 ## 使い方
 - `pip install -r requirements.txt`を実行
